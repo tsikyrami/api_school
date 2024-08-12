@@ -9,33 +9,42 @@ def fetch_student_credits():
         Student.id,
         Student.name,
         db.func.sum(Course.credits).label('total_credits')
-    ).join(Enrollment).join(Course).group_by(Student.id).all()
+    ).select_from(Student).join(Enrollment, Student.id == Enrollment.student_id).join(Course, Enrollment.course_id == Course.id).group_by(Student.id).all()
     return results
-
-
 
 def fetch_students_above_grade_threshold(threshold):
     results = db.session.query(
         Student.id,
         Student.name,
-        db.func.avg(Course.grade).label('average_grade')
-    ).join(Enrollment).join(Course).group_by(Student.id).having(db.func.avg(Course.grade) >= threshold).all()
+        db.func.avg(Enrollment.grade).label('average_grade')
+    ).join(Enrollment).join(Course).group_by(Student.id).having(db.func.avg(Enrollment.grade) >= threshold).all()
     return results
 
 def fetch_min_max_credits_by_department(department_id):
-        results = db.session.query(
-            db.func.min(db.func.sum(Course.credits)).label('min_credits'),
-            db.func.max(db.func.sum(Course.credits)).label('max_credits')
-        ).select_from(Student).join(Enrollment).join(Course).join(Department).filter(
-            Department.id == department_id
-        ).group_by(Student.id).all()
-
-        if results:
-            min_credits, max_credits = results[0]
-        else:
-            min_credits = max_credits = None
-
-        return min_credits, max_credits
+    subquery = (
+        db.session.query(
+            Student.id.label('student_id'),
+            func.sum(Course.credits).label('total_credits')
+        )
+        .select_from(Student)
+        .join(Enrollment, Student.id == Enrollment.student_id)
+        .join(Course, Enrollment.course_id == Course.id)
+        .join(Department, Course.department_id == Department.id)
+        .filter(Department.id == department_id)
+        .group_by(Student.id)
+        .subquery()
+    )
+    result = (
+        db.session.query(
+            func.min(subquery.c.total_credits).label('min_credits'),
+            func.max(subquery.c.total_credits).label('max_credits')
+        ).first()
+    )
+    if result:
+        min_credits, max_credits = result
+    else:
+        min_credits = max_credits = None
+    return min_credits, max_credits
 
 def fetch_most_experienced_instructor(department_id):
     result = db.session.query(
