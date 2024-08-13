@@ -1,73 +1,52 @@
 from app.models import Student, Course, Enrollment,Instructor,Department, db
 from sqlalchemy.sql import func    
 
-def fetch_students_by_department( department_id):
-    return db.session.query(Student).join(Enrollment).join(Course).filter(Course.department_id == department_id).all()
+def fetch_students_in_department(department_id, grade_threshold):
+    try:
+        if not department_id or grade_threshold is None:
+            raise ValueError("Invalid parameter: department_id and grade_threshold must be provided and valid.")
 
-def fetch_student_credits():
-    results = db.session.query(
-        Student.id,
-        Student.name,
-        db.func.sum(Course.credits).label('total_credits')
-    ).select_from(Student).join(Enrollment, Student.id == Enrollment.student_id).join(Course, Enrollment.course_id == Course.id).group_by(Student.id).all()
-    return results
+        most_experienced_instructor_subquery = db.session.query(
+            Instructor.id.label('instructor_id'),
+            func.count(Student.id).label('student_count')
+        ).join(Student, Student.advisor_id == Instructor.id).filter(
+            Instructor.department_id == department_id
+        ).group_by(Instructor.id).order_by(func.count(Student.id).desc()).limit(1).subquery()
 
-def fetch_students_above_grade_threshold(threshold):
-    results = db.session.query(
-        Student.id,
-        Student.name,
-        db.func.avg(Enrollment.grade).label('average_grade')
-    ).join(Enrollment).join(Course).group_by(Student.id).having(db.func.avg(Enrollment.grade) >= threshold).all()
-    return results
-
-def fetch_min_max_credits_by_department(department_id):
-    subquery = (
-        db.session.query(
-            Student.id.label('student_id'),
-            func.sum(Course.credits).label('total_credits')
-        )
-        .select_from(Student)
-        .join(Enrollment, Student.id == Enrollment.student_id)
-        .join(Course, Enrollment.course_id == Course.id)
-        .join(Department, Course.department_id == Department.id)
-        .filter(Department.id == department_id)
-        .group_by(Student.id)
-        .subquery()
-    )
-    result = (
-        db.session.query(
-            func.min(subquery.c.total_credits).label('min_credits'),
-            func.max(subquery.c.total_credits).label('max_credits')
-        ).first()
-    )
-    if result:
-        min_credits, max_credits = result
-    else:
-        min_credits = max_credits = None
-    return min_credits, max_credits
-
-def fetch_most_experienced_instructor(department_id):
-    result = db.session.query(
-        Instructor.id,
-        Instructor.name,
-        db.func.count(Student.id).label('student_count')
-    ).join(Student).join(Department).filter(
-        Student.advisor_id == Instructor.id,
-        Department.id == department_id
-    ).group_by(Instructor.id).order_by(db.func.count(Student.id).desc()).first()
-
-    if result:
-        return result.id, result.name
-    else:
-        return None, None
-
-def fetch_students_with_advisor_check(department_id):
-    most_experienced_id, _ = fetch_most_experienced_instructor(department_id)
-    if most_experienced_id:
-        students = db.session.query(Student).filter(
-            Student.advisor_id == most_experienced_id
+        results = db.session.query(
+            Student.id,
+            Student.name,
+            func.sum(Course.credits).label('total_credits'),
+            func.avg(Enrollment.grade).label('average_grade')
+        ).select_from(Student).join(
+            Enrollment, Student.id == Enrollment.student_id
+        ).join(
+            Course, Enrollment.course_id == Course.id
+        ).filter(
+            Course.department_id == department_id,
+            Enrollment.grade >= grade_threshold,
+            Student.advisor_id == most_experienced_instructor_subquery.c.instructor_id
+        ).group_by(
+            Student.id
         ).all()
-    else:
-        students = []
 
-    return students
+        if not results:
+            return [] 
+        
+        min_credits = min(student.total_credits for student in results)
+        max_credits = max(student.total_credits for student in results)
+
+        students = []
+        for student in results:
+            students.append({
+                'id': student.id,
+                'name': student.name,
+                'total_credits': student.total_credits,
+                'average_grade': student.average_grade,
+                'min_credits': min_credits,
+                'max_credits': max_credits
+            })
+
+        return students
+    except Exception as e:
+        raise Exception(f"An error occurred: {str(e)}")

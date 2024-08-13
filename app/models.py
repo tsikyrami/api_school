@@ -9,7 +9,6 @@ class Department(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     location = db.Column(db.String(100), nullable=False)
-    
     instructors = db.relationship('Instructor', backref='department', lazy=True)
     courses = db.relationship('Course', backref='department', lazy=True)
 
@@ -37,7 +36,6 @@ class Course(db.Model):
     name = db.Column(db.String(100), nullable=False)
     credits = db.Column(db.Integer, nullable=False)
     department_id = db.Column(db.Integer, db.ForeignKey('department.id'), nullable=False)
-    
     students = db.relationship('Student', secondary='enrollment', backref='courses')
 
     def __repr__(self):
@@ -49,8 +47,6 @@ class Student(db.Model):
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     advisor_id = db.Column(db.Integer, db.ForeignKey('instructor.id'), nullable=True)
-    
-    # Relationship with Enrollment table
     enrollments = db.relationship('Enrollment', backref='student', lazy=True)
 
     def __repr__(self):
